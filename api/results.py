@@ -1,11 +1,8 @@
-from flask import Flask, jsonify
 import gspread
 from google.oauth2.service_account import Credentials
 import os
 import json
 from collections import Counter
-
-app = Flask(__name__)
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -13,50 +10,28 @@ SCOPES = [
 ]
 
 def get_sheet():
-    creds_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
-    creds_dict = json.loads(creds_json)
-
+    creds_dict = json.loads(os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON"))
     creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
     client = gspread.authorize(creds)
-
-    spreadsheet_id = os.environ.get("SPREADSHEET_ID")
-    sheet = client.open_by_key(spreadsheet_id).sheet1
+    sheet = client.open_by_key(os.environ.get("SPREADSHEET_ID")).sheet1
     return sheet
 
-@app.route("/api/results", methods=["GET", "OPTIONS"])
-def results():
+def handler(request, response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+
     if request.method == "OPTIONS":
-        response = jsonify({"status": "ok"})
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        return response
+        return response.send("ok", 200)
 
     try:
         sheet = get_sheet()
-        all_rows = sheet.get_all_records()  # 헤더 제외 딕셔너리 리스트
+        all_rows = sheet.get_all_records()
 
-        total = len(all_rows)
-
-        # 집계
-        age_groups = Counter(row["연령대"] for row in all_rows)
-        satisfactions = Counter(row["만족도"] for row in all_rows)
-        frequencies = Counter(row["이용빈도"] for row in all_rows)
-        recommends = Counter(row["추천여부"] for row in all_rows)
-
-        response = jsonify({
-            "total": total,
-            "age_group": dict(age_groups),
-            "satisfaction": dict(satisfactions),
-            "frequency": dict(frequencies),
-            "recommend": dict(recommends)
+        return response.json({
+            "total": len(all_rows),
+            "age_group": dict(Counter(r["연령대"] for r in all_rows)),
+            "satisfaction": dict(Counter(r["만족도"] for r in all_rows)),
+            "frequency": dict(Counter(r["이용빈도"] for r in all_rows)),
+            "recommend": dict(Counter(r["추천여부"] for r in all_rows))
         })
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        return response
-
     except Exception as e:
-        response = jsonify({"error": str(e)})
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        return response, 500
-
-
-def handler(request, context=None):
-    return app(request.environ, lambda *args: None)
+        return response.json({"error": str(e)}, 500)
